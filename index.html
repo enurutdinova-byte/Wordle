@@ -337,6 +337,7 @@ const MONTHS  = ["January","February","March","April","May","June",
 let SECRET, WORD_LEN, HINT, ENTRY;
 let currentRow, currentCol, currentGuess, gameOver, keyStates, tiles, keyEls, guessHistory;
 let submitting = false;
+const usedWords = new Set(); // tracks all words used across all guesses this session
 
 function getActiveEntry() {
   const now = new Date();
@@ -449,6 +450,14 @@ async function submitGuess() {
     submitting = false;
     return;
   }
+
+  if (usedWords.has(guess)) {
+    shakeCurrent();
+    toast("Already tried this word!");
+    submitting = false;
+    return;
+  }
+  usedWords.add(guess);
 
   const result = scoreGuess(guess, SECRET);
   guessHistory.push({ guess: guess, result: result });
