@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TFB Wordle</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #fff;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 16px 8px 32px; color: #222;
+}
+header { text-align: center; margin-bottom: 10px; }
+header h2 { font-size: 22px; font-weight: 800; letter-spacing: 4px; color: #0052cc; }
+header p  { font-size: 12px; color: #999; margin-top: 2px; }
+
+#hint-box {
+  display: none; font-size: 12px; color: #555;
+  background: #f0f4ff; border: 1px solid #c5d5f5;
+  border-radius: 8px; padding: 7px 14px;
+  margin-bottom: 10px; text-align: center; max-width: 320px;
+}
+
+#toast {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  background: #1a1a1a; color: #fff; padding: 8px 20px;
+  border-radius: 20px; font-size: 13px; font-weight: 700;
+  opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 99;
+}
+#toast.show { opacity: 1; }
+
+#board { display: grid; gap: 5px; margin-bottom: 16px; }
+
+.tile {
+  width: 56px; height: 56px;
+  border: 2px solid #d3d6da;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; text-transform: uppercase;
+  border-radius: 4px; background: #fff;
+  transition: transform 0.15s ease;
+}
+.tile.filled  { border-color: #888; animation: pop .1s ease; }
+.tile.shake   { animation: shake .4s ease; }
+
+/* Revealed states — only applied after flip completes */
+.tile.correct { background: #6aaa64; border-color: #6aaa64; color: #fff; }
+.tile.present { background: #c9b458; border-color: #c9b458; color: #fff; }
+.tile.absent  { background: #787c7e; border-color: #787c7e; color: #fff; }
+
+@keyframes pop      { 0%{transform:scale(1)} 50%{transform:scale(1.13)} 100%{transform:scale(1)} }
+@keyframes shake    { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
+@keyframes flipDown { 0%{transform:rotateX(0)}   100%{transform:rotateX(-90deg)} }
+@keyframes flipUp   { 0%{transform:rotateX(90deg)} 100%{transform:rotateX(0)} }
+
+#keyboard { display:flex; flex-direction:column; gap:6px; align-items:center; margin-bottom:14px; }
+.kb-row { display:flex; gap:5px; }
+.key {
+  height: 54px; min-width: 38px; padding: 0 5px;
+  background: #d3d6da; border: none; border-radius: 4px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #222; transition: background .15s, color .15s;
+  -webkit-user-select: none; user-select: none;
+}
+.key.wide { min-width: 62px; font-size: 11px; }
+.key:active { opacity: .75; }
+.key.correct { background: #6aaa64; color: #fff; }
+.key.present { background: #c9b458; color: #fff; }
+.key.absent  { background: #787c7e; color: #fff; }
+
+#hint-btn-wrap { margin-bottom: 12px; min-height: 34px; display: flex; justify-content: center; }
+#hint-btn {
+  display: none; padding: 7px 20px;
+  background: #f0f4ff; color: #0052cc;
+  border: 1.5px solid #0052cc; border-radius: 20px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+#hint-btn:hover { background: #dce8ff; }
+
+#explanation {
+  display: none; max-width: 360px; width: 100%;
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,.12); margin-top: 4px;
+}
+#explanation.show { display: block; }
+.exp-header { padding: 14px 18px 10px; background: #0052cc; color: #fff; }
+.exp-word    { font-size: 26px; font-weight: 800; letter-spacing: 3px; margin-bottom: 2px; }
+.exp-outcome { font-size: 12px; opacity: .85; font-weight: 600; }
+.exp-section { padding: 12px 18px; border-bottom: 1px solid #f0f0f0; }
+.exp-section:last-of-type { border-bottom: none; }
+.exp-tag {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  letter-spacing: .8px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px; margin-bottom: 5px;
+}
+.tag-general { background: #e8f0fe; color: #0052cc; }
+.tag-trading { background: #e6f4ea; color: #1a7a2a; }
+.exp-text { font-size: 13px; color: #333; line-height: 1.55; }
+.exp-footer { padding: 12px 18px; background: #f8f8f8; display: flex; gap: 8px; }
+.exp-footer button {
+  flex: 1; padding: 8px; border: none; border-radius: 7px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.btn-share  { background: #0052cc; color: #fff; border-radius: 7px; }
+.btn-share:hover { background: #0041a8; }
+.next-word-plate {
+  flex: 1; padding: 8px;
+  background: #f0f4ff; color: #0052cc;
+  border-radius: 7px; font-size: 12px;
+  font-weight: 600; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+<header>
+  <h2>🟦 TFB WORDLE</h2>
+  <p>Monthly vocabulary challenge</p>
+</header>
+<div id="hint-box"></div>
+<div id="board"></div>
+<div id="keyboard"></div>
+<div id="hint-btn-wrap">
+  <button id="hint-btn" onclick="showHint()">💡 Use hint</button>
+</div>
+<div id="explanation">
+  <div class="exp-header">
+    <div class="exp-word" id="exp-word"></div>
+    <div class="exp-outcome" id="exp-outcome"></div>
+  </div>
+  <div class="exp-section">
+    <div class="exp-tag tag-general">In everyday English</div>
+    <div class="exp-text" id="exp-general"></div>
+  </div>
+  <div class="exp-section">
+    <div class="exp-tag tag-trading">In trading</div>
+    <div class="exp-text" id="exp-forex"></div>
+  </div>
+  <div class="exp-footer">
+    <button class="btn-share" onclick="shareResult()">Share 📋</button>
+    <div class="next-word-plate">📰 New word in next TFB News</div>
+  </div>
+</div>
+
+<script>
+const SCHEDULE = [
+  { month:"March 2026",     word:"CRAWL", hint:"Think: slow, gradual movement",
+    general:"To move forward on the hands and knees, or by dragging the body close to the ground.",
+    forex:"As in 'crawling peg' — an exchange rate system where a currency's value is allowed to fluctuate only within a narrow band, adjusted gradually over time." },
+  { month:"April 2026",     word:"CABLE", hint:"Think: a famous currency pair",
+    general:"A thick rope of wire or fibre, or an insulated wire for transmitting electricity or signals.",
+    forex:"Trader slang for the GBP/USD currency pair. The name refers to the transatlantic telegraph cable laid in the 1860s, used to transmit GBP exchange rates between London and New York." },
+  { month:"May 2026",       word:"DRIFT", hint:"Think: slow, directionless price movement",
+    general:"To be carried slowly by a current of air or water; to move passively without clear direction.",
+    forex:"When price moves slowly in one direction without momentum or a clear catalyst — often seen in low-volume sessions or between news events." },
+  { month:"June 2026",      word:"STALL", hint:"Think: momentum dying",
+    general:"To stop making progress; a compartment in a stable for one animal.",
+    forex:"When price momentum stops and loses direction — the market stalls at a resistance or support level, unable to break through." },
+  { month:"July 2026",      word:"BASIS", hint:"Think: spot vs futures gap",
+    general:"The underlying support or foundation for an idea or argument; the principal ingredient of a mixture.",
+    forex:"The gap between today's cash (spot) price and the futures market price of an asset. Traders watch the basis to spot arbitrage opportunities." },
+  { month:"August 2026",    word:"LAYER", hint:"Think: building a position in stages",
+    general:"A sheet, quantity, or thickness of material, typically one of several, covering a surface or body.",
+    forex:"To build a trading position in layers or tranches over time — entering the market gradually rather than all at once to reduce timing risk." },
+  { month:"September 2026", word:"FIBRE", hint:"Think: another famous currency pair",
+    general:"A thread or filament from which a vegetable tissue, mineral substance, or textile is formed.",
+    forex:"Trader slang for the EUR/USD currency pair — one of the most traded pairs in the world, sometimes called 'the fibre' in dealing rooms." },
+  { month:"October 2026",   word:"LEVER", hint:"Think: amplifying a position",
+    general:"A rigid bar resting on a pivot, used to move a heavy load with a smaller applied force.",
+    forex:"To use leverage in a trade — 'he levered up his position' means increasing market exposure using borrowed capital. Leverage amplifies both gains and losses." },
+  { month:"November 2026",  word:"FINEX", hint:"Think: a currency futures exchange",
+    general:"Short for Financial Instrument Exchange — a proper noun referring to a specific financial marketplace.",
+    forex:"A currency futures exchange, part of the New York Cotton Exchange. FINEX was one of the key venues for trading currency futures contracts before electronic trading took over." },
+  { month:"December 2026",  word:"RALLY", hint:"Think: prices going up fast",
+    general:"To come together again in order to continue fighting; to recover or cause to recover in health, spirits, or poise.",
+    forex:"When price rises sharply and quickly — a strong upward move in a currency, stock, or commodity, often triggered by positive news or a shift in market sentiment." }
+];
+
+const GAME_WORDS = new Set(SCHEDULE.map(e => e.word.toUpperCase()));
+const dictCache  = {};
+
+// Common 5-letter English words as offline fallback
+const FALLBACK = new Set([
+  "ABOUT","ABOVE","ABUSE","ACTOR","ACUTE","ADMIT","ADOPT","AFTER","AGAIN","AGENT",
+  "AGREE","AHEAD","ALARM","ALBUM","ALERT","ALIKE","ALIGN","ALLOW","ALONE","ALONG",
+  "ALTER","ANGEL","ANGER","ANGLE","ANNEX","APART","APPLE","APPLY","ARENA","ARGUE",
+  "ARISE","ARMOR","AROMA","ARRAY","ASIDE","ASSET","ATLAS","ATTIC","AUDIO","AUDIT",
+  "AVOID","AWAKE","AWARD","AWARE","AWFUL","BASIC","BATCH","BEACH","BEARD","BEAST",
+  "BEGIN","BEING","BELOW","BENCH","BERRY","BIRTH","BLACK","BLADE","BLAME","BLAST",
+  "BLAZE","BLEED","BLEND","BLESS","BLIND","BLOCK","BLOOD","BLOOM","BLOWN","BOARD",
+  "BOOST","BOOTH","BOUND","BRAIN","BRAND","BRAVE","BREAD","BREAK","BREED","BRICK",
+  "BRIDE","BRIEF","BRING","BROAD","BROKE","BROWN","BRUSH","BUILD","BUILT","BUNCH",
+  "BURST","BUYER","CABLE","CARRY","CATCH","CAUSE","CEASE","CHAIN","CHAIR","CHAOS",
+  "CHARM","CHASE","CHEAP","CHECK","CHESS","CHEST","CHIEF","CHILD","CIVIL","CLAIM",
+  "CLASS","CLEAN","CLEAR","CLICK","CLIFF","CLIMB","CLOCK","CLOSE","CLOUD","COAST",
+  "COUNT","COURT","COVER","CRAFT","CRANE","CRASH","CRAWL","CRAZY","CREAM","CRIME",
+  "CROSS","CROWD","CROWN","CRUEL","CRUSH","CURVE","CYCLE","DAILY","DANCE","DEALT",
+  "DEATH","DEBUT","DECAY","DELAY","DELTA","DENSE","DEPOT","DEPTH","DIGIT","DIRTY",
+  "DODGE","DOUBT","DRAFT","DRAIN","DRAMA","DRAWN","DREAD","DREAM","DRIED","DRIFT",
+  "DRINK","DRIVE","DROVE","DYING","EAGER","EAGLE","EARLY","EARTH","EIGHT","ELITE",
+  "EMPTY","ENEMY","ENJOY","ENTER","EQUAL","ERROR","ESSAY","EVERY","EXACT","EXIST",
+  "EXTRA","FAINT","FAITH","FALSE","FANCY","FAULT","FEAST","FENCE","FIBRE","FIELD",
+  "FIFTH","FIFTY","FIGHT","FINAL","FIRST","FIXED","FLAME","FLEET","FLESH","FLOAT",
+  "FLOOD","FLOOR","FLOUR","FOCUS","FORCE","FORGE","FORTH","FOUND","FRAME","FRANK",
+  "FRAUD","FRESH","FRONT","FROST","FRUIT","GHOST","GIVEN","GLASS","GLORY","GRACE",
+  "GRADE","GRAIN","GRAND","GRANT","GRASP","GRASS","GRAVE","GREAT","GREED","GREEN",
+  "GRIEF","GRIND","GROSS","GROUP","GROWN","GUARD","GUIDE","GUILD","GUILT","HAPPY",
+  "HARSH","HAVEN","HEART","HEAVY","HEDGE","HENCE","HONOR","HORSE","HOTEL","HOUSE",
+  "HUMAN","HUMOR","HURRY","IDEAL","IMAGE","IMPLY","INDEX","INPUT","ISSUE","JUDGE",
+  "JUICE","KNIFE","KNOCK","KNOWN","LABEL","LARGE","LASER","LATER","LAYER","LEARN",
+  "LEASE","LEAST","LEAVE","LEGAL","LEVEL","LEVER","LIGHT","LIMIT","LOCAL","LOGIC",
+  "LOOSE","LOWER","LUCKY","MAGIC","MAJOR","MAKER","MARCH","MATCH","MAYOR","MEDIA",
+  "MERCY","MERIT","METAL","MIGHT","MINOR","MIXED","MODEL","MONEY","MONTH","MORAL",
+  "MOTOR","MOUNT","MOUSE","MOUTH","MUSIC","NAIVE","NERVE","NEVER","NIGHT","NOISE",
+  "NORTH","NOTED","NOVEL","NURSE","OCCUR","OCEAN","OFFER","ORDER","OUTER","OWNER",
+  "PAINT","PANEL","PAPER","PARTY","PATCH","PAUSE","PEACE","PILOT","PITCH","PLACE",
+  "PLAIN","PLANE","PLANT","PLATE","POINT","POLAR","POWER","PRESS","PRICE","PRIDE",
+  "PRIME","PRIZE","PROBE","PROOF","PROSE","PROUD","PROVE","PULSE","QUEEN","QUEST",
+  "QUICK","QUIET","QUITE","QUOTA","QUOTE","RADAR","RADIO","RAISE","RALLY","RANGE",
+  "RAPID","RATIO","REACH","READY","REALM","REBEL","REFER","REIGN","RELAX","REPLY",
+  "RIDER","RIDGE","RIFLE","RIGHT","RISKY","RIVAL","RIVER","ROBOT","ROCKY","ROUGH",
+  "ROUND","ROUTE","ROYAL","RULER","RURAL","SAINT","SAUCE","SCALE","SCENE","SCORE",
+  "SENSE","SERVE","SEVEN","SHADE","SHAKE","SHALL","SHAME","SHAPE","SHARE","SHARP",
+  "SHIFT","SHINE","SHOCK","SHOOT","SHORT","SHOUT","SIGHT","SINCE","SIXTH","SIXTY",
+  "SKILL","SKULL","SLAVE","SLEEP","SLICE","SLIDE","SLOPE","SMART","SMILE","SMOKE",
+  "SOLID","SOLVE","SORRY","SOUTH","SPACE","SPARE","SPARK","SPEAK","SPEND","SPILL",
+  "SPINE","SPITE","SPLIT","SPOKE","STACK","STAFF","STAGE","STAIN","STAIR","STAKE",
+  "STALE","STALL","STAND","STARE","START","STATE","STEAL","STEEL","STEEP","STEER",
+  "STERN","STICK","STIFF","STILL","STOCK","STONE","STORM","STORY","STOUT","STRAP",
+  "STRAW","STRIP","STUCK","STUDY","STUFF","STYLE","SUGAR","SUITE","SUPER","SURGE",
+  "SWAMP","SWEAR","SWEEP","SWEET","SWEPT","SWING","SWIPE","TABLE","TAKEN","TASTE",
+  "TEACH","TENSE","TERMS","THEFT","THEME","THICK","THING","THINK","THIRD","THOSE",
+  "THREE","THREW","THROW","THUMB","TIRED","TITLE","TODAY","TOKEN","TOTAL","TOUCH",
+  "TOUGH","TOWEL","TOWER","TOXIC","TRACK","TRADE","TRAIL","TRAIN","TRAIT","TRASH",
+  "TREAT","TREND","TRIAL","TRIBE","TRICK","TRIED","TROOP","TRUCK","TRULY","TRUNK",
+  "TRUST","TRUTH","TUMOR","TWIST","ULTRA","UNCLE","UNDER","UNION","UNITY","UNTIL",
+  "UPPER","UPSET","URBAN","USAGE","USUAL","UTTER","VALID","VALUE","VALVE","VIDEO",
+  "VIRAL","VISIT","VITAL","VIVID","VOCAL","VOICE","VOTER","WAGON","WASTE","WATCH",
+  "WATER","WEIGH","WEIRD","WHALE","WHEAT","WHEEL","WHITE","WHOLE","WIDER","WITCH",
+  "WOMAN","WOMEN","WORLD","WORRY","WORSE","WORST","WORTH","WOULD","WOUND","WRATH",
+  "WRIST","WRITE","WROTE","YACHT","YIELD","YOUNG","YOUTH","ZEBRA","ABBEY","ABIDE",
+  "ABBOT","ABHOR","ABODE","ABYSS","ACORN","ADORE","ADORN","ADULT","AFOOT","AFOUL",
+  "AFTER","AGILE","AGLOW","AISLE","ALGAE","ALIBI","ALLAY","ALLEY","ALLOY","ALOFT",
+  "ALOOF","ALOUD","ALTAR","AMEND","AMISS","AMPLE","AMPLY","AMUCK","ANGEL","ANNOY",
+  "ANTIC","ANVIL","APRON","APTLY","ARDOR","ARDENT","ARMOR","ARRAY","ATONE","ATOP",
+  "ATTIC","AUGUR","AVAIL","AVID","AVOID","AWASH","AWFUL","AWOKE","BACON","BAGEL",
+  "BAKED","BAKER","BALER","BASTE","BATCH","BATHE","BATON","BATTY","BAYOU","BEARD",
+  "BEGUN","BELLE","BELLY","BERTH","BEVEL","BIDDY","BIRCH","BISON","BLEAK","BLEAT",
+  "BLIMP","BLITHE","BLOAT","BLOND","BLUNT","BLURB","BLURT","BOAST","BOOBY","BOOZE",
+  "BOTCH","BOXER","BRACE","BRAID","BRASH","BRAWN","BRAZE","BROOD","BROTH","BROWS",
+  "BUDGE","BULGE","BULLY","BURLY","BUSHY","BUSTLE","BUTCH","BUTTE","BYLAW","CABAL",
+  "CABIN","CADET","CAMEL","CAMEO","CARGO","CARVE","CEDAR","CHAIR","CHALK","CHAMP",
+  "CHANT","CHARD","CHASM","CHEEP","CHEWY","CHIDE","CHILI","CHILL","CHIMP","CHIRP",
+  "CHOIR","CHORD","CHORE","CHURN","CHUTE","CIDER","CINCH","CIVIC","CLACK","CLASP",
+  "CLAVE","CLOMP","CLONE","CLUCK","CLUMP","COACH","COMET","COMMA","CONCH","CONDO",
+  "CONIC","CORAL","CORNY","COUCH","COUGH","COVET","COWED","CRAMP","CRIMP","CRISP",
+  "CROAK","CRONE","CROOK","CRUDE","CRUMB","CRYPT","CUBIC","CUMIN","CURLY","CUTIE",
+  "DAISY","DANDY","DENIM","DENSE","DEPOT","DERBY","DIRGE","DISCO","DITTY","DIVVY",
+  "DIZZY","DODGY","DOGMA","DOLLY","DOWDY","DOWEL","DOWRY","DOYEN","DRANK","DRAWL",
+  "DROOL","DROOP","DROSS","DROVE","DRUID","DRUNK","DRYER","DUCHY","DULLY","DUMPS",
+  "DUNCE","DUSKY","DUVET","DWARF","DWELL","ECLAT","EDIFY","EERIE","EGRET","ELEGY",
+  "EMBER","EMERY","ENVOY","EQUIP","ERUPT","EVADE","EVOKE","EXACT","EXALT","EXERT",
+  "EXPEL","EXTOL","EXULT","FABLE","FACET","FARCE","FARCE","FETID","FILLY","FINCH",
+  "FLAIR","FLANK","FLARE","FLASK","FLECK","FLICK","FLING","FLINT","FLIRT","FLOCK",
+  "FLOSS","FLOUT","FLOWN","FLUKE","FLUNK","FLUTE","FOAMY","FORAY","FORGE","FORTE",
+  "FORUM","FRAIL","FREAK","FROTH","FROZE","FRUGAL","FUGUE","FULLY","FUNGI","FUNKY",
+  "GAUDY","GAUZE","GAVEL","GAWKY","GIDDY","GIMME","GIRTH","GIZMO","GLOAT","GLOSS",
+  "GLOVE","GLYPH","GNOME","GODLY","GOUGE","GOURD","GRAZE","GRIPE","GROAN","GROAT",
+  "GROIN","GROPE","GROUT","GROWL","GRUEL","GUILE","GULCH","GULLY","GUSTO","GUSHY",
+  "GYPSY","HADNT","HAIKU","HASTE","HATCH","HAUTE","HAVEN","HAVOC","HAZEL","HEADY",
+  "HEIST","HENCE","HIPPO","HITCH","HOARD","HOARY","HOLLY","HOMER","HORDE","HOTLY",
+  "HOUND","HOVER","HOWDY","HUFFY","HULKY","INANE","INEPT","INERT","INFER","INGOT",
+  "INTER","INTRO","INURE","IONIC","IRATE","JAZZY","JELLO","JOIST","JOUST","JUNTO",
+  "KIOSK","KNACK","KNEEL","KNELT","KNOLL","LAPEL","LARVA","LATCH","LATHE","LATTE",
+  "LEAPT","LEDGE","LEERY","LIBEL","LINER","LITHE","LIVID","LOAMY","LOBBY","LOFTY",
+  "LOOPY","LUSTY","LURCH","LUSTY","LYING","MAIZE","MAUVE","MAXIM","MEALY","MELEE",
+  "MELON","MESSY","MIDST","MILKY","MINCE","MIRTH","MISTY","MOURN","MOODY","MOSSY",
+  "MUDDY","MUGGY","MULCH","MURKY","MUSTY","NIFTY","NINTH","NIPPY","NITTY","NOBLE",
+  "NOTCH","NYMPH","OCTET","OFFAL","OPTIC","OVARY","OVOID","OXIDE","OZONE","PADDY",
+  "PANSY","PAPAL","PATSY","PENAL","PERCH","PETAL","PETTY","PEWIT","PICKY","PIGMY",
+  "PITHY","PIXEL","PIXIE","PLAID","PLAZA","PLEAD","PLUCK","PLUMB","PLUME","PLUNK",
+  "PLUSH","POKER","POLKA","POLYP","POPPY","POTTY","POUTY","PRIVY","PRUDE","PRUNE",
+  "PSALM","PUBIC","PUBIS","PUDGY","PUFFY","PULPY","PUNKY","PUPIL","PURGE","PUFFY",
+  "QUAFF","QUALM","QUALM","QUASH","QUIRK","QUOTA","RABBI","RABID","RAINY","RAJAH",
+  "RANDY","RASPY","RATTY","REEDY","RENAL","REPEL","RESIN","RETCH","RETRO","RHINO",
+  "RIDER","RIPEN","RIVET","ROAST","RODEO","ROGUE","ROOMY","ROOST","ROWDY","RUDDY",
+  "RUGBY","RUNNY","RUPEE","RUSTY","SABRE","SALSA","SAMBA","SANDY","SASSY","SAVVY",
+  "SEEDY","SEIZE","SERUM","SHACK","SHAFT","SHAKY","SHALE","SHAWL","SHEEN","SHEER",
+  "SHIRK","SHORN","SHOWY","SHRUB","SHUCK","SHUNT","SHYLY","SIEGE","SILKY","SILLY",
+  "SINEW","SKATE","SKIFF","SKIMP","SIREN","SLAIN","SLANT","SLEET","SLICK","SLIME",
+  "SLIMY","SLUNG","SLUNK","SLURP","SLYLY","SMACK","SMEAR","SMELT","SMIRK","SMOKY",
+  "SNACK","SNAKY","SNARE","SNARL","SNEER","SNIDE","SNIFF","SNOOP","SNORE","SNORT",
+  "SNOUT","SOGGY","SOLAR","SOOTY","SORRY","SPANK","SPECK","SPEED","SPICE","SPICY",
+  "SPIKY","SPIRE","SPOOK","SPORE","SPOUT","SPREE","SPRIG","SPUNK","SPURN","STAID",
+  "STOMP","STUNG","STUNK","STUNT","SURLY","SWATH","SWIRL","TABOO","TACKY","TAPIR",
+  "TARDY","TAUNT","TAWNY","TEPID","TERSE","THEFT","THORN","THOSE","THROB","THROE",
+  "THRUM","THUMP","TIMID","TIPSY","TITHE","TOTEM","TOXIC","TRUCE","TRYST","TUBER",
+  "TULLE","TUMOR","TUNER","TUNIC","TURBO","TUTOR","TUXEDO","TWERP","TWILL","TWIRL",
+  "UNCUT","UNDUE","UNFIT","UNIFY","UNWED","UNZIP","USURP","VAPID","VAUNT","VENAL",
+  "VERGE","VIGOR","VIPER","VIRGO","VISOR","VISOR","VIXEN","VOGUE","VOILA","VOUCH",
+  "VYING","WACKY","WADER","WAKEN","WARTY","WAVER","WEARY","WEDGE","WEEDY","WELCH",
+  "WHACK","WHIFF","WHIRL","WHOOP","WIDEN","WIMPY","WINDY","WISPY","WITTY","WOBBLY",
+  "WOKEN","WORDY","WOOZY","WRATH","WREAK","WRECK","WRING","XYLEM","YEARN","ZIPPY"
+]);
+
+async function isValidWord(word) {
+  if (GAME_WORDS.has(word)) return true;
+  if (word in dictCache) return dictCache[word];
+
+  // 1st try: Datamuse API (CORS-friendly, works in iframes)
+  try {
+    const res  = await fetch("https://api.datamuse.com/words?sp=" + word.toLowerCase() + "&max=1");
+    const data = await res.json();
+    // Datamuse returns exact match only if the word exists and spelling matches
+    const found = Array.isArray(data) && data.length > 0 &&
+                  data[0].word.toUpperCase() === word;
+    dictCache[word] = found;
+    return found;
+  } catch (e) {
+    // API blocked — fall back to local list
+  }
+
+  // 2nd fallback: local word list
+  const inLocal = FALLBACK.has(word);
+  dictCache[word] = inLocal;
+  return inLocal;
+}
+
+const MAX_GUESSES = 6;
+const KB_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "↵ZXCVBNM⌫"];
+const MONTHS  = ["January","February","March","April","May","June",
+                 "July","August","September","October","November","December"];
+
+let SECRET, WORD_LEN, HINT, ENTRY;
+let currentRow, currentCol, currentGuess, gameOver, keyStates, tiles, keyEls, guessHistory;
+let submitting = false;
+
+function getActiveEntry() {
+  const now = new Date();
+  let active = null;
+  for (const e of SCHEDULE) {
+    const parts = e.month.split(" ");
+    const mIdx  = MONTHS.indexOf(parts[0]);
+    const yr    = parseInt(parts[1]);
+    if (now >= new Date(yr, mIdx, 9)) active = e;
+  }
+  return active || SCHEDULE[0];
+}
+
+function init() {
+  ENTRY    = getActiveEntry();
+  SECRET   = ENTRY.word.toUpperCase();
+  WORD_LEN = SECRET.length;
+  HINT     = ENTRY.hint;
+
+  currentRow   = 0;
+  currentCol   = 0;
+  currentGuess = [];
+  gameOver     = false;
+  submitting   = false;
+  keyStates    = {};
+  guessHistory = [];
+
+  document.getElementById("hint-box").style.display = "none";
+  document.getElementById("hint-box").textContent   = "💡 " + HINT;
+  document.getElementById("hint-btn").style.display = "none";
+  document.getElementById("explanation").classList.remove("show");
+
+  buildBoard();
+  buildKeyboard();
+}
+
+function buildBoard() {
+  const b = document.getElementById("board");
+  b.innerHTML = "";
+  b.style.gridTemplateColumns = "repeat(" + WORD_LEN + ", 56px)";
+  b.style.gridTemplateRows    = "repeat(" + MAX_GUESSES + ", 56px)";
+  tiles = [];
+  for (let r = 0; r < MAX_GUESSES; r++) {
+    tiles[r] = [];
+    for (let c = 0; c < WORD_LEN; c++) {
+      const t = document.createElement("div");
+      t.className = "tile";
+      b.appendChild(t);
+      tiles[r][c] = t;
+    }
+  }
+}
+
+function buildKeyboard() {
+  const kbd = document.getElementById("keyboard");
+  kbd.innerHTML = "";
+  keyEls = {};
+  KB_ROWS.forEach(function(row) {
+    const div = document.createElement("div");
+    div.className = "kb-row";
+    for (const ch of row) {
+      const btn   = document.createElement("button");
+      const isWide = (ch === "↵" || ch === "⌫");
+      btn.className   = isWide ? "key wide" : "key";
+      btn.textContent = ch;
+      btn.addEventListener("click", function() { handleKey(ch); });
+      div.appendChild(btn);
+      keyEls[ch] = btn;
+    }
+    kbd.appendChild(div);
+  });
+}
+
+document.addEventListener("keydown", function(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.key === "Enter")          handleKey("↵");
+  else if (e.key === "Backspace") handleKey("⌫");
+  else if (/^[a-zA-Z]$/.test(e.key)) handleKey(e.key.toUpperCase());
+});
+
+function handleKey(k) {
+  if (gameOver || submitting) return;
+  if (k === "⌫") {
+    if (currentCol > 0) {
+      currentCol--;
+      currentGuess.pop();
+      tiles[currentRow][currentCol].textContent = "";
+      tiles[currentRow][currentCol].classList.remove("filled");
+    }
+  } else if (k === "↵") {
+    submitGuess();
+  } else if (currentCol < WORD_LEN && /^[A-Z]$/.test(k)) {
+    tiles[currentRow][currentCol].textContent = k;
+    tiles[currentRow][currentCol].classList.add("filled");
+    currentGuess.push(k);
+    currentCol++;
+  }
+}
+
+async function submitGuess() {
+  if (currentCol < WORD_LEN) { shakeCurrent(); toast("Not enough letters"); return; }
+  submitting = true;
+  const guess = currentGuess.join("");
+
+  toast("Checking…");
+  const valid = await isValidWord(guess);
+  if (!valid) {
+    shakeCurrent();
+    toast("Not a valid word");
+    submitting = false;
+    return;
+  }
+
+  const result = scoreGuess(guess, SECRET);
+  guessHistory.push({ guess: guess, result: result });
+
+  // Flip each tile: rotate down → apply colour → rotate up
+  // Each tile is fully self-contained — colour never bleeds into other rows
+  var FLIP_HALF = 180; // ms for each half
+  for (var i = 0; i < WORD_LEN; i++) {
+    (function(idx, state) {
+      var tile = tiles[currentRow][idx];
+      var delay = idx * 300; // stagger per letter
+
+      setTimeout(function() {
+        // Phase 1: flip down
+        tile.style.transition = "transform " + FLIP_HALF + "ms ease-in";
+        tile.style.transform  = "rotateX(-90deg)";
+
+        setTimeout(function() {
+          // Midpoint: apply colour class while tile is hidden (edge-on)
+          tile.classList.remove("filled");
+          tile.classList.add(state);
+
+          // Phase 2: flip up — now showing the coloured face
+          tile.style.transition = "transform " + FLIP_HALF + "ms ease-out";
+          tile.style.transform  = "rotateX(0deg)";
+        }, FLIP_HALF);
+      }, delay);
+    })(i, result[i]);
+  }
+
+  var animDone = WORD_LEN * 300 + FLIP_HALF * 2 + 100;
+  const won            = (guess === SECRET);
+  const rowJustDone    = currentRow;
+
+  currentRow++;
+  currentGuess = [];
+  currentCol   = 0;
+  submitting   = false;
+
+  setTimeout(function() {
+    // Update keyboard colours
+    for (let i = 0; i < result.length; i++) {
+      const ch    = guess[i];
+      const state = result[i];
+      const prev  = keyStates[ch];
+      if (prev === "correct") continue;
+      if (prev === "present" && state === "absent") continue;
+      keyStates[ch] = state;
+      const btn = keyEls[ch];
+      if (btn) {
+        btn.className = (btn.classList.contains("wide") ? "key wide " : "key ") + state;
+      }
+    }
+
+    // Show hint button after 3rd failed attempt
+    if (!won && currentRow >= 3 && currentRow < MAX_GUESSES) {
+      document.getElementById("hint-btn").style.display = "inline-block";
+    }
+
+    if (won) {
+      gameOver = true;
+      document.getElementById("hint-btn").style.display = "none";
+      var msgs = ["Genius! 🧠","Magnificent! 🌟","Impressive! 💪","Splendid! 👏","Great! 😊","Phew! 😅"];
+      toast(msgs[rowJustDone] || "Nice!");
+      setTimeout(function() { showExplanation(true); }, 600);
+    } else if (currentRow === MAX_GUESSES) {
+      gameOver = true;
+      document.getElementById("hint-btn").style.display = "none";
+      toast("Better luck next month!");
+      setTimeout(function() { showExplanation(false); }, 600);
+    }
+  }, animDone);
+}
+
+function scoreGuess(guess, secret) {
+  var res  = [];
+  var pool = {};
+  for (var i = 0; i < secret.length; i++) { res.push("absent"); }
+  for (var i = 0; i < secret.length; i++) {
+    if (guess[i] === secret[i]) { res[i] = "correct"; }
+    else { pool[secret[i]] = (pool[secret[i]] || 0) + 1; }
+  }
+  for (var i = 0; i < secret.length; i++) {
+    if (res[i] === "correct") continue;
+    if (pool[guess[i]]) { res[i] = "present"; pool[guess[i]]--; }
+  }
+  return res;
+}
+
+function shakeCurrent() {
+  for (var c = 0; c < Math.max(currentCol, 1); c++) {
+    (function(col) {
+      tiles[currentRow][col].classList.add("shake");
+      setTimeout(function() { tiles[currentRow][col].classList.remove("shake"); }, 400);
+    })(c);
+  }
+}
+
+var toastTimer;
+function toast(msg) {
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { el.classList.remove("show"); }, 2200);
+}
+
+function showHint() {
+  document.getElementById("hint-box").style.display = "block";
+  document.getElementById("hint-btn").style.display = "none";
+}
+
+function showExplanation(won) {
+  document.getElementById("exp-word").textContent    = SECRET;
+  document.getElementById("exp-outcome").textContent = won
+    ? "✅ Solved in " + guessHistory.length + (guessHistory.length === 1 ? " try!" : " tries!")
+    : "❌ The word was " + SECRET;
+  document.getElementById("exp-general").textContent = ENTRY.general;
+  document.getElementById("exp-forex").textContent   = ENTRY.forex;
+  document.getElementById("explanation").classList.add("show");
+}
+
+function shareResult() {
+  var E = { correct:"🟩", present:"🟨", absent:"⬛" };
+  var lines = guessHistory.map(function(g) {
+    return g.result.map(function(s) { return E[s]; }).join("");
+  }).join("\n");
+  var text = "TFB Wordle · " + ENTRY.month + "\n" + lines + "\n" + guessHistory.length + "/" + MAX_GUESSES;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { toast("Copied! 📋"); });
+  } else {
+    prompt("Copy this:", text);
+  }
+}
+
+function replayGame() { init(); }
+
+init();
+</script>
+</body>
+</html>
